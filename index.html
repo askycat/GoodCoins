@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>richer</title>
+</head>
+
+<body>
+  <h1>火币USDT交易对推荐币种</h1>
+  <div id="coins">
+    <h2>...</h2>
+  </div>
+</body>
+<script>
+
+  (async () => {
+
+    var coins = await fetch("https://api.huobi.pro/v1/common/currencys").then(function (response) {
+      return response.json();
+    })
+    coins.data.forEach(async function (coin) {
+      var pair = coin+"usdt"
+      var res = await fetch(`https://api.huobi.pro/market/depth?symbol=${pair}&type=step3`)
+        .then(function (response) {
+          return response.json();
+        })
+      var asks=res.tick.asks;//sell
+      var bids=res.tick.bids;//buy
+      
+      var num=0;
+
+      for (let index = 0; index <= 5; index++) {
+        var ask=asks[index]; //sell x
+        var bid=bids[index]; //buy  x
+        //0 price 
+        //1 number
+        if(bid[1]/ask[1]>4)
+           num++;
+      }
+    if(num>3)
+
+        document.querySelector("#coins").appendHTML(`<h2>${coin}-usdt</h2>`)
+    });
+
+  })();
+
+
+HTMLElement.prototype.appendHTML = function(html) {
+    var divTemp = document.createElement("div"), nodes = null
+        // 文档片段，一次性append，提高性能
+        , fragment = document.createDocumentFragment();
+    divTemp.innerHTML = html;
+    nodes = divTemp.childNodes;
+    for (var i=0, length=nodes.length; i<length; i+=1) {
+       fragment.appendChild(nodes[i].cloneNode(true));
+    }
+    this.appendChild(fragment);
+    // 据说下面这样子世界会更清净
+    nodes = null;
+    fragment = null;
+};
+
+
+</script>
+
+</html>
