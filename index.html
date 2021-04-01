@@ -34,16 +34,19 @@ var geshu=2;
       var bids=res.tick.bids;//buy
       
       var num=0;
-
-      for (let index = 0; index <= 2; index++) {
+       var sell=0;
+      var buy=0;
+      for (let index = 0; index <= 3; index++) {
         var ask=asks[index]; //sell x
         var bid=bids[index]; //buy  x
         //0 price 
         //1 number
+        sell+=ask[1];
+        buy+=bid[1];
         if(bid[1]/ask[1]>beishu)
            num++;
       }
-    if(num>geshu){
+    if(bids[0][1]>sell){
         pair=coin+"_usdt";
         var url=`https://www.huobi.me/zh-cn/exchange/${pair}`;
         document.querySelector("#coins").appendHTML(`<a href="${url}"><h2>${pair}</h2></a>`);
