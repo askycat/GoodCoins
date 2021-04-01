@@ -15,8 +15,8 @@
   </div>
 </body>
 <script>
-var beishu=2;
-var geshu=3;
+var beishu=4;
+var geshu=2;
   (async () => {
 
     var coins = await fetch("https://api.huobi.pro/v1/common/currencys").then(function (response) {
@@ -35,7 +35,7 @@ var geshu=3;
       
       var num=0;
 
-      for (let index = 0; index <= 7; index++) {
+      for (let index = 0; index <= 2; index++) {
         var ask=asks[index]; //sell x
         var bid=bids[index]; //buy  x
         //0 price 
