@@ -28,7 +28,7 @@
           return response.json();
         })
       if(res.status!='ok')
-        continue;
+        return
       var asks=res.tick.asks;//sell
       var bids=res.tick.bids;//buy
       
