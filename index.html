@@ -37,10 +37,10 @@
         var bid=bids[index]; //buy  x
         //0 price 
         //1 number
-        if(bid[1]/ask[1]>4)
+        if(bid[1]/ask[1]>5)
            num++;
       }
-    if(num>3){
+    if(num>4){
         pair=coin+"_usdt";
         var url=`https://www.huobi.me/zh-cn/exchange/${pair}`;
         document.querySelector("#coins").appendHTML(`<a href="${url}"><h2>${pair}</h2></a>`);
