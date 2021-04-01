@@ -15,7 +15,8 @@
   </div>
 </body>
 <script>
-
+var beishu=5;
+var geshu=2;
   (async () => {
 
     var coins = await fetch("https://api.huobi.pro/v1/common/currencys").then(function (response) {
@@ -39,10 +40,10 @@
         var bid=bids[index]; //buy  x
         //0 price 
         //1 number
-        if(bid[1]/ask[1]>5)
+        if(bid[1]/ask[1]>beishu)
            num++;
       }
-    if(num>4){
+    if(num>geshu){
         pair=coin+"_usdt";
         var url=`https://www.huobi.me/zh-cn/exchange/${pair}`;
         document.querySelector("#coins").appendHTML(`<a href="${url}"><h2>${pair}</h2></a>`);
