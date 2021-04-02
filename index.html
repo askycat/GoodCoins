@@ -49,7 +49,7 @@ var geshu=2;
     if(bids[0][1]>sell){
         pair=coin+"_usdt";
         var url=`https://www.huobi.me/zh-cn/exchange/${pair}`;
-        document.querySelector("#coins").appendHTML(`<h2><a href="${url}">${pair}</a></h2>`);
+        document.querySelector("#coins").appendHTML(`<h2><a target="_blank" href="${url}">${pair}</a></h2>`);
       }
     });
 
