@@ -24,7 +24,7 @@ var geshu=2;
     })
     coins.data.forEach(async function (coin) {
       var pair = coin+"usdt"
-      var res = await fetch(`https://api.huobi.pro/market/depth?symbol=${pair}&type=step3`)
+      var res = await fetch(`https://api.huobi.pro/market/depth?symbol=${pair}&type=step2`)
         .then(function (response) {
           return response.json();
         })
