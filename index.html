@@ -1,77 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 
 <head>
-  <meta charset="UTF-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>richer</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Doge</title>
+    <base href="/" />
+    <link href="css/bootstrap/bootstrap.min.css" rel="stylesheet" />
+    <link href="css/app.css" rel="stylesheet" />
 </head>
 
 <body>
-  <h1>GOOD COIN IN HUOBI</h1>
-  <div id="coins">
-    <h2>...</h2>
-  </div>
+    <app>Loading...</app>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+    <script src="_framework/blazor.webassembly.js"></script>
 </body>
-<script>
-var beishu=4;
-var geshu=2;
-  (async () => {
-
-    var coins = await fetch("https://api.huobi.pro/v1/common/currencys").then(function (response) {
-      return response.json();
-    })
-    coins.data.forEach(async function (coin) {
-      var pair = coin+"usdt"
-      var res = await fetch(`https://api.huobi.pro/market/depth?symbol=${pair}&type=step3`)
-        .then(function (response) {
-          return response.json();
-        })
-      if(res.status!='ok')
-        return
-      var asks=res.tick.asks;//sell
-      var bids=res.tick.bids;//buy
-      
-      var num=0;
-       var sell=0;
-      var buy=0;
-      for (let index = 0; index <= 4; index++) {
-        var ask=asks[index]; //sell x
-        var bid=bids[index]; //buy  x
-        //0 price 
-        //1 number
-        sell+=ask[1];
-        buy+=bid[1];
-        if(bid[1]/ask[1]>beishu)
-           num++;
-      }
-    if(bids[0][1]>sell){
-        pair=coin+"_usdt";
-        var url=`https://www.huobi.me/zh-cn/exchange/${pair}`;
-        document.querySelector("#coins").appendHTML(`<h2><a target="_blank" href="${url}">${pair}</a></h2>`);
-      }
-    });
-
-  })();
-
-
-HTMLElement.prototype.appendHTML = function(html) {
-    var divTemp = document.createElement("div"), nodes = null
-        // 文档片段，一次性append，提高性能
-        , fragment = document.createDocumentFragment();
-    divTemp.innerHTML = html;
-    nodes = divTemp.childNodes;
-    for (var i=0, length=nodes.length; i<length; i+=1) {
-       fragment.appendChild(nodes[i].cloneNode(true));
-    }
-    this.appendChild(fragment);
-    // 据说下面这样子世界会更清净
-    nodes = null;
-    fragment = null;
-};
-
-
-</script>
 
 </html>
