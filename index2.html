@@ -1,0 +1,763 @@
+<!-- /index.html -->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Binance 合约做空策略扫描器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+
+        h1, h2, h3, h4 {
+            margin: 0 0 12px 0;
+        }
+
+        .panel {
+            background: #111827;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #2563eb;
+            color: white;
+            font-size: 14px;
+        }
+
+        button:disabled {
+            background: #475569;
+            cursor: not-allowed;
+        }
+
+        input, select {
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: #0b1220;
+            color: #e2e8f0;
+        }
+
+        .status {
+            margin-top: 10px;
+            color: #93c5fd;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        .muted {
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .ok {
+            color: #22c55e;
+        }
+
+        .warn {
+            color: #f59e0b;
+        }
+
+        .danger {
+            color: #ef4444;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+            font-size: 14px;
+        }
+
+        th, td {
+            border: 1px solid #334155;
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: #1e293b;
+        }
+
+        tr:nth-child(even) {
+            background: #0b1220;
+        }
+
+        tr.clickable {
+            cursor: pointer;
+        }
+
+        tr.clickable:hover {
+            background: #172033;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .card {
+            background: #0b1220;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .kline-table {
+            font-size: 13px;
+        }
+
+        .selected-symbol {
+            color: #60a5fa;
+            font-weight: bold;
+        }
+
+        .empty {
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <h1>Binance 合约做空策略扫描器</h1>
+
+    <div class="panel">
+        <div class="row">
+            <label for="interval">周期：</label>
+            <select id="interval">
+                <option value="5m" selected>5m</option>
+                <option value="15m">15m</option>
+                <option value="1h">1h</option>
+            </select>
+
+            <label for="maxSymbols">扫描数量：</label>
+            <input id="maxSymbols" type="number" value="80" min="1" max="300" />
+
+            <label for="rsiThreshold">RSI 阈值：</label>
+            <input id="rsiThreshold" type="number" value="60" min="1" max="100" />
+
+            <label for="nearPercent">接近 EMA20：</label>
+            <input id="nearPercent" type="number" value="0.003" step="0.001" min="0.001" max="0.05" />
+
+            <label for="topN">显示前：</label>
+            <input id="topN" type="number" value="20" min="1" max="100" />
+        </div>
+
+        <button id="scanBtn">开始扫描</button>
+
+        <div id="status" class="status">等待开始...</div>
+
+        <div class="muted" style="margin-top:8px;">
+            默认扫描 USDT 永续、状态为 TRADING 的合约；优先扫描 24h 成交额较高的币种；点击表格中的币种可查看详细信息。
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>符合条件的币种（按 RSI 排序）</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>币种</th>
+                    <th>价格</th>
+                    <th>EMA20</th>
+                    <th>EMA60</th>
+                    <th>RSI</th>
+                    <th>趋势</th>
+                    <th>偏离 EMA20</th>
+                    <th>24h 成交额</th>
+                </tr>
+            </thead>
+            <tbody id="resultBody">
+                <tr>
+                    <td colspan="8" class="empty">暂无结果</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel">
+        <h3>详细信息</h3>
+        <div id="detailBox" class="empty">点击上方币种后，这里会显示详细指标与最近 K 线。</div>
+    </div>
+
+    <script>
+        const BASE_URL = 'https://fapi.binance.com';
+        const DEFAULT_KLINE_LIMIT = 150;
+        const DETAIL_KLINE_LIMIT = 150;
+        const BATCH_SIZE = 5;
+        const BATCH_DELAY_MS = 180;
+
+        const scanBtn = document.getElementById('scanBtn');
+        const statusEl = document.getElementById('status');
+        const resultBody = document.getElementById('resultBody');
+        const detailBox = document.getElementById('detailBox');
+        const intervalEl = document.getElementById('interval');
+        const maxSymbolsEl = document.getElementById('maxSymbols');
+        const rsiThresholdEl = document.getElementById('rsiThreshold');
+        const nearPercentEl = document.getElementById('nearPercent');
+        const topNEl = document.getElementById('topN');
+
+        let latestMatchedList = [];
+        let latestScanMap = new Map();
+        let detailRequestToken = 0;
+
+        function setStatus(text) {
+            statusEl.textContent = text;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function formatDynamicNumber(value) {
+            if (value === null || value === undefined || Number.isNaN(value)) {
+                return '-';
+            }
+
+            const abs = Math.abs(value);
+
+            if (abs >= 1000) return value.toFixed(2);
+            if (abs >= 1) return value.toFixed(4);
+            if (abs >= 0.01) return value.toFixed(6);
+            return value.toFixed(8);
+        }
+
+        function formatPercent(value, digits = 2) {
+            if (value === null || value === undefined || Number.isNaN(value)) {
+                return '-';
+            }
+            return `${value.toFixed(digits)}%`;
+        }
+
+        function formatAmount(value) {
+            if (value === null || value === undefined || Number.isNaN(value)) {
+                return '-';
+            }
+
+            if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
+            if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+            if (value >= 1_000) return `${(value / 1_000).toFixed(2)}K`;
+            return value.toFixed(2);
+        }
+
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            const hh = String(date.getHours()).padStart(2, '0');
+            const mm = String(date.getMinutes()).padStart(2, '0');
+            const ss = String(date.getSeconds()).padStart(2, '0');
+            return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+        }
+
+        function clearTable() {
+            resultBody.innerHTML = '';
+        }
+
+        async function publicGet(path, params = {}) {
+            const url = new URL(BASE_URL + path);
+
+            Object.entries(params).forEach(([key, value]) => {
+                url.searchParams.set(key, value);
+            });
+
+            const res = await fetch(url.toString());
+
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${path}`);
+            }
+
+            return res.json();
+        }
+
+        async function getExchangeInfo() {
+            return publicGet('/fapi/v1/exchangeInfo');
+        }
+
+        async function get24hTickers() {
+            return publicGet('/fapi/v1/ticker/24hr');
+        }
+
+        async function getKlines(symbol, interval, limit = DEFAULT_KLINE_LIMIT) {
+            return publicGet('/fapi/v1/klines', { symbol, interval, limit });
+        }
+
+        function extractCloses(klines) {
+            return klines.map(item => Number(item[4]));
+        }
+
+        function calculateEMAArray(values, period) {
+            if (!Array.isArray(values) || values.length < period) {
+                return [];
+            }
+
+            const result = Array(values.length).fill(null);
+            const multiplier = 2 / (period + 1);
+            let ema = values.slice(0, period).reduce((sum, v) => sum + v, 0) / period;
+
+            result[period - 1] = ema;
+
+            for (let i = period; i < values.length; i++) {
+                ema = values[i] * multiplier + ema * (1 - multiplier);
+                result[i] = ema;
+            }
+
+            return result;
+        }
+
+        function calculateEMA(values, period) {
+            const series = calculateEMAArray(values, period);
+            return series.length ? series[series.length - 1] : null;
+        }
+
+        function calculateRSIArray(values, period = 14) {
+            if (!Array.isArray(values) || values.length < period + 1) {
+                return [];
+            }
+
+            const result = Array(values.length).fill(null);
+            let gainSum = 0;
+            let lossSum = 0;
+
+            for (let i = 1; i <= period; i++) {
+                const diff = values[i] - values[i - 1];
+                if (diff >= 0) {
+                    gainSum += diff;
+                } else {
+                    lossSum += Math.abs(diff);
+                }
+            }
+
+            let avgGain = gainSum / period;
+            let avgLoss = lossSum / period;
+
+            if (avgLoss === 0) {
+                result[period] = 100;
+            } else {
+                const rs = avgGain / avgLoss;
+                result[period] = 100 - 100 / (1 + rs);
+            }
+
+            for (let i = period + 1; i < values.length; i++) {
+                const diff = values[i] - values[i - 1];
+                const gain = diff > 0 ? diff : 0;
+                const loss = diff < 0 ? Math.abs(diff) : 0;
+
+                avgGain = ((avgGain * (period - 1)) + gain) / period;
+                avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+
+                if (avgLoss === 0) {
+                    result[i] = 100;
+                } else {
+                    const rs = avgGain / avgLoss;
+                    result[i] = 100 - 100 / (1 + rs);
+                }
+            }
+
+            return result;
+        }
+
+        function calculateRSI(values, period = 14) {
+            const series = calculateRSIArray(values, period);
+            return series.length ? series[series.length - 1] : null;
+        }
+
+        function isNearEMA(price, ema, maxPercentDiff) {
+            if (!price || !ema) {
+                return false;
+            }
+            return Math.abs(price - ema) / ema <= maxPercentDiff;
+        }
+
+        function getDiffPercent(price, ema) {
+            if (!price || !ema) {
+                return null;
+            }
+            return Math.abs(price - ema) / ema * 100;
+        }
+
+        function filterTradableUsdtPerpetualSymbols(exchangeInfo) {
+            return exchangeInfo.symbols
+                .filter(item =>
+                    item.status === 'TRADING' &&
+                    item.contractType === 'PERPETUAL' &&
+                    item.quoteAsset === 'USDT'
+                )
+                .map(item => item.symbol);
+        }
+
+        function buildTickerVolumeMap(tickers) {
+            const map = new Map();
+
+            for (const ticker of tickers) {
+                map.set(ticker.symbol, Number(ticker.quoteVolume) || 0);
+            }
+
+            return map;
+        }
+
+        function rankSymbolsByVolume(symbols, tickerVolumeMap) {
+            return [...symbols].sort((a, b) => {
+                const volumeA = tickerVolumeMap.get(a) || 0;
+                const volumeB = tickerVolumeMap.get(b) || 0;
+                return volumeB - volumeA;
+            });
+        }
+
+        function analyzeSymbol(symbol, closes, rsiThreshold, nearPercent, quoteVolume = null) {
+            const price = closes[closes.length - 1];
+            const ema20 = calculateEMA(closes, 20);
+            const ema60 = calculateEMA(closes, 60);
+            const rsi = calculateRSI(closes, 14);
+
+            if (ema20 === null || ema60 === null || rsi === null) {
+                return null;
+            }
+
+            const trendDown = ema20 < ema60;
+            const rsiOk = rsi > rsiThreshold;
+            const nearEma = isNearEMA(price, ema20, nearPercent);
+            const diffPercent = getDiffPercent(price, ema20);
+            const signal = trendDown && rsiOk && nearEma;
+
+            return {
+                symbol,
+                price,
+                ema20,
+                ema60,
+                rsi,
+                trendDown,
+                rsiOk,
+                nearEma,
+                diffPercent,
+                signal,
+                quoteVolume
+            };
+        }
+
+        async function scanOneSymbol(symbol, interval, rsiThreshold, nearPercent, tickerVolumeMap) {
+            try {
+                const klines = await getKlines(symbol, interval, DEFAULT_KLINE_LIMIT);
+                const closes = extractCloses(klines);
+                const quoteVolume = tickerVolumeMap.get(symbol) || 0;
+                const analyzed = analyzeSymbol(symbol, closes, rsiThreshold, nearPercent, quoteVolume);
+
+                if (analyzed) {
+                    latestScanMap.set(symbol, { analyzed, klines });
+                }
+
+                return analyzed;
+            } catch {
+                return null;
+            }
+        }
+
+        async function scanInBatches(symbols, interval, rsiThreshold, nearPercent, tickerVolumeMap) {
+            const results = [];
+
+            for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+                const batch = symbols.slice(i, i + BATCH_SIZE);
+
+                setStatus(
+                    `扫描中... ${i + 1} - ${Math.min(i + BATCH_SIZE, symbols.length)} / ${symbols.length}\n` +
+                    `批次大小: ${BATCH_SIZE}`
+                );
+
+                const batchResults = await Promise.all(
+                    batch.map(symbol =>
+                        scanOneSymbol(symbol, interval, rsiThreshold, nearPercent, tickerVolumeMap)
+                    )
+                );
+
+                results.push(...batchResults.filter(Boolean));
+
+                if (i + BATCH_SIZE < symbols.length) {
+                    await sleep(BATCH_DELAY_MS);
+                }
+            }
+
+            return results;
+        }
+
+        function renderResults(list) {
+            clearTable();
+
+            if (!list.length) {
+                resultBody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="empty">当前没有符合条件的币种</td>
+                    </tr>
+                `;
+                return;
+            }
+
+            for (const item of list) {
+                const tr = document.createElement('tr');
+                tr.className = 'clickable';
+
+                tr.innerHTML = `
+                    <td>${item.symbol}</td>
+                    <td>${formatDynamicNumber(item.price)}</td>
+                    <td>${formatDynamicNumber(item.ema20)}</td>
+                    <td>${formatDynamicNumber(item.ema60)}</td>
+                    <td>${formatDynamicNumber(item.rsi)}</td>
+                    <td class="${item.trendDown ? 'ok' : 'warn'}">${item.trendDown ? '空头' : '非空头'}</td>
+                    <td class="${item.nearEma ? 'ok' : 'warn'}">${formatPercent(item.diffPercent, 3)}</td>
+                    <td>${formatAmount(item.quoteVolume)}</td>
+                `;
+
+                tr.addEventListener('click', () => {
+                    showDetail(item.symbol);
+                });
+
+                resultBody.appendChild(tr);
+            }
+        }
+
+        async function loadDetailKlines(symbol, interval) {
+            const cached = latestScanMap.get(symbol);
+
+            if (cached?.klines?.length >= DETAIL_KLINE_LIMIT) {
+                return cached.klines;
+            }
+
+            return getKlines(symbol, interval, DETAIL_KLINE_LIMIT);
+        }
+
+        async function showDetail(symbol) {
+            const requestToken = ++detailRequestToken;
+            detailBox.innerHTML = '正在加载详情...';
+
+            try {
+                const interval = intervalEl.value;
+                const rsiThreshold = Number(rsiThresholdEl.value);
+                const nearPercent = Number(nearPercentEl.value);
+                const klines = await loadDetailKlines(symbol, interval);
+
+                if (requestToken !== detailRequestToken) {
+                    return;
+                }
+
+                const closes = extractCloses(klines);
+                const ema20Arr = calculateEMAArray(closes, 20);
+                const ema60Arr = calculateEMAArray(closes, 60);
+                const rsiArr = calculateRSIArray(closes, 14);
+
+                const lastIndex = closes.length - 1;
+                const lastClose = closes[lastIndex];
+                const ema20 = ema20Arr[lastIndex];
+                const ema60 = ema60Arr[lastIndex];
+                const rsi = rsiArr[lastIndex];
+                const trendDown = ema20 !== null && ema60 !== null && ema20 < ema60;
+                const nearEma = isNearEMA(lastClose, ema20, nearPercent);
+                const diffPercent = getDiffPercent(lastClose, ema20);
+                const signal = trendDown && rsi !== null && rsi > rsiThreshold && nearEma;
+
+                const recentRows = klines.slice(-10).reverse().map((k, idx) => {
+                    const originalIndex = klines.length - 1 - idx;
+                    const openTime = formatTime(Number(k[0]));
+                    const open = Number(k[1]);
+                    const high = Number(k[2]);
+                    const low = Number(k[3]);
+                    const close = Number(k[4]);
+
+                    return `
+                        <tr>
+                            <td>${openTime}</td>
+                            <td>${formatDynamicNumber(open)}</td>
+                            <td>${formatDynamicNumber(high)}</td>
+                            <td>${formatDynamicNumber(low)}</td>
+                            <td>${formatDynamicNumber(close)}</td>
+                            <td>${formatDynamicNumber(ema20Arr[originalIndex])}</td>
+                            <td>${formatDynamicNumber(ema60Arr[originalIndex])}</td>
+                            <td>${formatDynamicNumber(rsiArr[originalIndex])}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                detailBox.innerHTML = `
+                    <div style="margin-bottom:12px;">
+                        当前选中：<span class="selected-symbol">${symbol}</span>
+                    </div>
+
+                    <div class="detail-grid">
+                        <div class="card">
+                            <h4>策略判断</h4>
+                            <div>是否触发信号：
+                                <span class="${signal ? 'ok' : 'danger'}">${signal ? '是' : '否'}</span>
+                            </div>
+                            <div>EMA20 &lt; EMA60：
+                                <span class="${trendDown ? 'ok' : 'warn'}">${trendDown ? '是' : '否'}</span>
+                            </div>
+                            <div>RSI &gt; ${rsiThreshold}：
+                                <span class="${rsi !== null && rsi > rsiThreshold ? 'ok' : 'warn'}">${rsi !== null && rsi > rsiThreshold ? '是' : '否'}</span>
+                            </div>
+                            <div>接近 EMA20：
+                                <span class="${nearEma ? 'ok' : 'warn'}">${nearEma ? '是' : '否'}</span>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h4>最新指标</h4>
+                            <div>最新价格：${formatDynamicNumber(lastClose)}</div>
+                            <div>EMA20：${formatDynamicNumber(ema20)}</div>
+                            <div>EMA60：${formatDynamicNumber(ema60)}</div>
+                            <div>RSI(14)：${formatDynamicNumber(rsi)}</div>
+                            <div>价格偏离 EMA20：${formatPercent(diffPercent, 3)}</div>
+                        </div>
+
+                        <div class="card">
+                            <h4>当前设置</h4>
+                            <div>周期：${interval}</div>
+                            <div>RSI 阈值：${rsiThreshold}</div>
+                            <div>接近 EMA20 阈值：${formatPercent(nearPercent * 100, 3)}</div>
+                            <div>详情 K 线数量：${DETAIL_KLINE_LIMIT}</div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:16px;">
+                        <h4>最近 10 根 K 线</h4>
+                        <table class="kline-table">
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>开盘</th>
+                                    <th>最高</th>
+                                    <th>最低</th>
+                                    <th>收盘</th>
+                                    <th>EMA20</th>
+                                    <th>EMA60</th>
+                                    <th>RSI</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${recentRows}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } catch (err) {
+                if (requestToken !== detailRequestToken) {
+                    return;
+                }
+                detailBox.innerHTML = `<span class="danger">详情加载失败：${err.message}</span>`;
+            }
+        }
+
+        async function runScan() {
+            scanBtn.disabled = true;
+            latestMatchedList = [];
+            latestScanMap = new Map();
+            setStatus('正在获取 Binance 合约列表...');
+            clearTable();
+            detailBox.innerHTML = '点击上方币种后，这里会显示详细指标与最近 K 线。';
+
+            try {
+                const interval = intervalEl.value;
+                const maxSymbols = Number(maxSymbolsEl.value);
+                const rsiThreshold = Number(rsiThresholdEl.value);
+                const nearPercent = Number(nearPercentEl.value);
+                const topN = Number(topNEl.value);
+
+                if (!interval) {
+                    throw new Error('周期不能为空');
+                }
+                if (!Number.isFinite(maxSymbols) || maxSymbols < 1) {
+                    throw new Error('扫描数量无效');
+                }
+                if (!Number.isFinite(rsiThreshold) || rsiThreshold <= 0 || rsiThreshold >= 100) {
+                    throw new Error('RSI 阈值无效');
+                }
+                if (!Number.isFinite(nearPercent) || nearPercent <= 0) {
+                    throw new Error('接近 EMA20 阈值无效');
+                }
+                if (!Number.isFinite(topN) || topN < 1) {
+                    throw new Error('显示数量无效');
+                }
+
+                const [exchangeInfo, tickers] = await Promise.all([
+                    getExchangeInfo(),
+                    get24hTickers()
+                ]);
+
+                const tradableSymbols = filterTradableUsdtPerpetualSymbols(exchangeInfo);
+                const tickerVolumeMap = buildTickerVolumeMap(tickers);
+
+                const rankedSymbols = rankSymbolsByVolume(tradableSymbols, tickerVolumeMap)
+                    .slice(0, maxSymbols);
+
+                setStatus(
+                    `已获取 ${tradableSymbols.length} 个可交易 USDT 永续合约\n` +
+                    `按 24h 成交额排序后，准备扫描前 ${rankedSymbols.length} 个币种...`
+                );
+
+                const allResults = await scanInBatches(
+                    rankedSymbols,
+                    interval,
+                    rsiThreshold,
+                    nearPercent,
+                    tickerVolumeMap
+                );
+
+                const matched = allResults
+                    .filter(item => item.signal)
+                    .sort((a, b) => {
+                        if (b.rsi !== a.rsi) {
+                            return b.rsi - a.rsi;
+                        }
+                        return (b.quoteVolume || 0) - (a.quoteVolume || 0);
+                    })
+                    .slice(0, topN);
+
+                latestMatchedList = matched;
+                renderResults(matched);
+
+                setStatus(
+                    `扫描完成\n` +
+                    `总可交易合约: ${tradableSymbols.length}\n` +
+                    `实际扫描币种: ${rankedSymbols.length}\n` +
+                    `符合条件: ${matched.length}\n` +
+                    `显示前: ${topN}\n` +
+                    `条件: EMA20 < EMA60 && RSI > ${rsiThreshold} && 价格接近 EMA20 (${formatPercent(nearPercent * 100, 3)})`
+                );
+
+                if (matched.length > 0) {
+                    await showDetail(matched[0].symbol);
+                }
+            } catch (err) {
+                setStatus(`扫描失败：${err.message}`);
+                resultBody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="danger">发生错误：${err.message}</td>
+                    </tr>
+                `;
+                detailBox.innerHTML = `<span class="danger">扫描失败，无法加载详情。</span>`;
+            } finally {
+                scanBtn.disabled = false;
+            }
+        }
+
+        scanBtn.addEventListener('click', runScan);
+    </script>
+</body>
+</html>
